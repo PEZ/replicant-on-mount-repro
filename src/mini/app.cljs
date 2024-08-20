@@ -4,7 +4,7 @@
             [gadget.inspector :as inspector]
             [replicant.dom :as r]))
 
-(defonce ^:private !state (atom {:ui/banner-text "An annoying banner"}))
+(defonce ^:private !db (atom {:ui/banner-text "An annoying banner"}))
 
 (defn banner-view [{:ui/keys [banner-text]}]
   [:div#banner {:style {:top 0
@@ -112,41 +112,39 @@
       (catch :default e
         (js/console.error "Error performing effect:" effect e)))))
 
-(defn- event-handler [{:replicant/keys [js-event] :as replicant-data} actions]
-  (println "BOOM!" "event-handler")
-  (when (seq actions)
-    (try
-      (loop [state @!state
-             [action & remaining-actions] (remove nil? actions)]
-        (println "BOOM!" "loop" (first action))
-        (let [enriched (->> action
-                            (enrich-action-from-event replicant-data)
-                            (enrich-action-from-state state))]
-          (try
-            (let [{:keys [new-state effects]} (handle-action state enriched)]
-              (when new-state
-                (reset! !state new-state))
-              (perform-effects! (first enriched) js-event (remove nil? effects)))
-            (catch :default e
-              (js/console.error "Error handling action:" action e)))
-          (println "BOOM!" "loop done" (first action))
-          (when remaining-actions
-            (recur @!state remaining-actions))))
-      (catch :default e
-        (js/console.error "Error in event-handler" e)))))
+(defn event-handler [!state]
+  (fn [{:replicant/keys [js-event] :as replicant-data} actions]
+    (when (seq actions)
+      (try
+        (loop [state @!state
+               [action & remaining-actions] (remove nil? actions)]
+          (let [enriched (->> action
+                              (enrich-action-from-event replicant-data)
+                              (enrich-action-from-state state))]
+            (try
+              (let [{:keys [new-state effects]} (handle-action state enriched)]
+                (when new-state
+                  (reset! !state new-state))
+                (perform-effects! (first enriched) js-event (remove nil? effects)))
+              (catch :default e
+                (js/console.error "Error handling action:" action e)))
+            (when remaining-actions
+              (recur @!state remaining-actions))))
+        (catch :default e
+          (js/console.error "Error in event-handler" e))))))
 
 (defn- render! [state]
   (r/render
    (js/document.getElementById "app")
-   (main-view state)))
+   (#'main-view state)))
 
 (defn ^{:dev/after-load true :export true} start! []
-  (render! @!state))
+  (render! @!db))
 
 (defn ^:export init! []
-  (inspector/inspect "App state" !state)
-  (r/set-dispatch! event-handler)
-  (add-watch !state :render (fn [_k _r o n]
-                              (when (not= o n)
-                                (render! @!state))))
+  (inspector/inspect "App state" !db)
+  (r/set-dispatch! (#'event-handler !db))
+  (add-watch !db :render (fn [_k _r o n]
+                           (when (not= o n)
+                             (render! @!db))))
   (start!))
