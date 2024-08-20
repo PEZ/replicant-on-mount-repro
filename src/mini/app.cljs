@@ -2,9 +2,24 @@
   (:require [clojure.walk :as walk]
             [clojure.core.match :refer [match]]
             [gadget.inspector :as inspector]
-            [replicant.dom :as r]))
+            [replicant.dom :as r-dom]
+            [replicant.core :as r-core]))
 
 (defonce ^:private !db (atom {:ui/banner-text "An annoying banner"}))
+
+(defonce !el (atom nil))
+
+(defn- replicant-dispatch
+  "Dispatch event data outside of Replicant actions"
+  ;; TODO: Reimplement with public API once Replicant has one
+  [e data]
+  (let [el @!el]
+    (if (and r-core/*dispatch* el)
+      (if (get-in @r-dom/state [el :rendering?])
+        (js/requestAnimationFrame #(r-core/*dispatch* e data))
+        (r-core/*dispatch* e data))
+      (throw (js/Error. "Cannot dispatch custom event data without a global event handler. Call replicant.core/set-dispatch!")))))
+
 
 (defn banner-view [{:ui/keys [banner-text]}]
   [:div#banner {:style {:top 0
@@ -15,11 +30,12 @@
    [:button {:on {:click [[:ui/ax-dismiss-banner]]}} "Dismiss"]])
 
 (defn- edit-view []
-  [:form {:on {:submit [[:dom/ax-prevent-default]
-                        [:db/ax-assoc :something/saved [:db/get :something/draft]]]}}
-   [:input#draft {:replicant/on-mount [[:db/ax-assoc :something/draft-input-element :dom/node]]
-                  :on {:input [[:db/ax-assoc :something/draft :event/target.value]]}}]
-   [:button {:type :submit} "Save draft"]
+  [:div
+   [:form {:on {:submit [[:dom/ax-prevent-default]
+                         [:db/ax-assoc :something/saved [:db/get :something/draft]]]}}
+    [:input#draft {:replicant/on-mount [[:db/ax-assoc :something/draft-input-element :dom/node]]
+                   :on {:input [[:db/ax-assoc :something/draft :event/target.value]]}}]
+    [:button {:type "submit"} "Save draft"]]
    [:button {:on {:click [[:db/ax-assoc :something/draft ""]
                           [:dom/ax-set-text [:db/get :something/draft-input-element] ""]
                           [:dom/ax-focus-element [:db/get :something/draft-input-element]]]}} "Clear draft"]])
@@ -41,7 +57,7 @@
   [:div {:style {:position "relative"}}
    (when (:ui/banner-text state)
      (banner-view state))
-   [:h1 "A tiny Replicant example"]
+   [:h1 "A repro attempt"]
    (edit-view)
    (display-view state)
    (something-view)])
@@ -134,17 +150,19 @@
           (js/console.error "Error in event-handler" e))))))
 
 (defn- render! [state]
-  (r/render
-   (js/document.getElementById "app")
+  (r-dom/render
+   @!el
    (#'main-view state)))
 
 (defn ^{:dev/after-load true :export true} start! []
+  (replicant-dispatch nil [[:db/ax-assoc :something/dispatched :dispatched]])
   (render! @!db))
 
 (defn ^:export init! []
   (inspector/inspect "App state" !db)
-  (r/set-dispatch! (#'event-handler !db))
+  (r-dom/set-dispatch! (#'event-handler !db)) 
+  (reset! !el (js/document.getElementById "app"))
   (add-watch !db :render (fn [_k _r o n]
                            (when (not= o n)
-                             (render! @!db))))
+                             (render! @!db)))) 
   (start!))
