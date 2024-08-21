@@ -58,7 +58,11 @@
    (when (:ui/banner-text state)
      (banner-view state))
    [:h1 "A repro attempt"]
-   (edit-view)
+   nil
+   nil
+   [:div #_{:replicant/key "edit-view"} 
+    [:h2 "Edit"
+     (edit-view)]]
    (display-view state)
    (something-view)])
 
